@@ -348,7 +348,7 @@ const ContactsScreen = ({ navigation }) => {
           </TouchableOpacity>
           <TextInput
             style={styles.searchInput}
-            placeholder="Nhập ID người dùng..."
+            placeholder="Nhập số điện thoại"
             placeholderTextColor="#ccc"
             value={receiverIdInput}
             onChangeText={setReceiverIdInput}
@@ -399,12 +399,6 @@ const ContactsScreen = ({ navigation }) => {
       <View style={styles.subTabs}>
         <TouchableOpacity style={styles.subTabItem}>
           <Text style={[styles.subTabText, styles.subTabActiveText]}>Bạn bè</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.subTabItem}>
-          <Text style={styles.subTabText}>Nhóm</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.subTabItem}>
-          <Text style={styles.subTabText}>OA</Text>
         </TouchableOpacity>
       </View>
 

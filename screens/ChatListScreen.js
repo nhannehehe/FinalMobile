@@ -371,9 +371,7 @@ const ChatListScreen = ({ navigation }) => {
           <Ionicons name="search" size={24} color="white" />
           <Text style={styles.searchText}>Tìm kiếm</Text>
         </TouchableOpacity>
-        <TouchableOpacity>
-          <Ionicons name="qr-code-outline" size={24} color="white" />
-        </TouchableOpacity>
+
         <TouchableOpacity
           style={styles.addButton}
           onPress={() => {

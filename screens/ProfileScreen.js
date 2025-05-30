@@ -143,18 +143,7 @@ const ProfileScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Các mục khác giữ nguyên */}
-        <TouchableOpacity style={styles.listItem}>
-          <View style={styles.listItemLeft}>
-            <Ionicons name="cloud-outline" size={24} color="#0084ff" style={styles.listItemIcon} />
-            <View style={styles.listItemTextContainer}>
-              <Text style={styles.listItemTitle}>zCloud</Text>
-              <Text style={styles.listItemSubtitle}>Không gian lưu trữ dữ liệu trên đám mây</Text>
-            </View>
-          </View>
-          <Ionicons name="chevron-forward-outline" size={20} color="#ccc" />
-        </TouchableOpacity>
-        {/* ... các mục khác tương tự ... */}
+
       </ScrollView>
     </SafeAreaView>
   );
