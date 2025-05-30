@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Alert, StyleSheet } from 'react-native';
 import { requestPasswordReset } from '../api/authApi';
 
 const ForgotPasswordScreen = ({ navigation }) => {
@@ -8,7 +8,6 @@ const ForgotPasswordScreen = ({ navigation }) => {
   const handleSendCode = async () => {
     if (!email) return Alert.alert("Lỗi", "Vui lòng nhập email");
 
-    // Kiểm tra định dạng email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return Alert.alert("Lỗi", "Email không hợp lệ");
@@ -25,19 +24,71 @@ const ForgotPasswordScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={{ padding: 20 }}>
-      <Text>Nhập Email của bạn:</Text>
+    <View style={styles.container}>
+      <Text style={styles.title}>Quên mật khẩu</Text>
+      <Text style={styles.label}>Vui lòng nhập email để nhận mã xác nhận:</Text>
+      
       <TextInput
-        placeholder="Email"
+        placeholder="example@email.com"
         value={email}
         onChangeText={setEmail}
-        style={{ borderWidth: 1, borderColor: '#ccc', marginVertical: 10, padding: 10 }}
+        style={styles.input}
         keyboardType="email-address"
         autoCapitalize="none"
+        placeholderTextColor="#888"
       />
-      <Button title="Gửi mã xác nhận" onPress={handleSendCode} />
+
+      <TouchableOpacity style={styles.button} onPress={handleSendCode}>
+        <Text style={styles.buttonText}>Gửi mã xác nhận</Text>
+      </TouchableOpacity>
     </View>
   );
 };
 
 export default ForgotPasswordScreen;
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: 24,
+    backgroundColor: '#f8f9fa',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 24,
+    color: '#333',
+    textAlign: 'center',
+  },
+  label: {
+    fontSize: 16,
+    marginBottom: 12,
+    color: '#555',
+  },
+  input: {
+    height: 48,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#fff',
+    marginBottom: 20,
+    fontSize: 16,
+  },
+  button: {
+    backgroundColor: '#007bff',
+    paddingVertical: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+});

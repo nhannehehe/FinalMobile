@@ -135,3 +135,43 @@ export const getAccessToken = async (forceRefresh = false) => {
   }
   return accessToken;
 };
+// authApi.js
+// authApi.js
+export const sendVerificationEmail = async (email) => {
+  return fetch(`${API_BASE_URL}/auth/verify-email`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(email), // Chỉ gửi chuỗi email thay vì object
+  }).then((res) => {
+    if (!res.ok) throw new Error("Không thể gửi mã xác nhận");
+    return res;
+  });
+};
+
+// authApi.js
+export const verifyEmailCode = async (data) => {
+  const payload = {
+    email: data.email,
+    code: data.code,
+    userRegisterRequest: {
+      username: data.username,
+      password: data.password,
+      email: data.email,
+      phone: data.phone,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      birthday: data.birthday,
+      gender: data.gender,
+      status: data.status,
+    },
+  };
+
+  return fetch(`${API_BASE_URL}/auth/verify-email-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then((res) => {
+    if (!res.ok) throw new Error("Mã xác nhận không đúng hoặc đã hết hạn");
+    return res.json();
+  });
+};
