@@ -107,88 +107,146 @@ export const uploadFile = async (files, receiverId, token, groupId = null, reply
 
 
 // Hàm kết nối WebSocket với STOMP
-export function connectWebSocket(token, userId, onMessageCallback, onDeleteCallback, onRecallCallback) {
+export function connectWebSocket(token, userId, onMessageCallback, onDeleteCallback, onRecallCallback, onPinCallback, onUnpinCallback, groupIds = [], onFriendRequestCallback) {
   return new Promise((resolve, reject) => {
     if (!token) {
-      reject(new Error('Token is missing'));
+      reject(new Error('Token is required'));
       return;
     }
 
-    if (stompClient && stompClient.connected) {
-      console.log('STOMP connection already in progress');
-      resolve();
-      return;
+    // Cleanup existing connection
+    if (stompClient) {
+      try {
+        stompClient.deactivate();
+      } catch (error) {
+        console.warn('Error cleaning up existing connection:', error);
+      }
+      stompClient = null;
     }
 
-    if (stompClient && stompClient.state !== 'CLOSED') {
-      console.log('STOMP client state:', stompClient.state);
-      resolve();
-      return;
-    }
-
+    const socket = new SockJS(SOCKJS_URL);
     stompClient = new Client({
-      webSocketFactory: () => {
-        console.log('Connecting to SockJS:', SOCKJS_URL);
-        return new SockJS(SOCKJS_URL);
-      },
+      webSocketFactory: () => socket,
       connectHeaders: {
         Authorization: `Bearer ${token}`,
-        userId: userId,
       },
-      debug: (str) => {
-        console.log('STOMP debug:', str);
+      debug: function (str) {
+        console.log('STOMP Debug:', str);
       },
-      reconnectDelay: 10000,
+      reconnectDelay: 5000,
       heartbeatIncoming: 4000,
       heartbeatOutgoing: 4000,
     });
 
+    let subscriptions = [];
+
     stompClient.onConnect = (frame) => {
       console.log('STOMP connected:', frame);
-      
-      stompClient.subscribe(`/user/${userId}/queue/messages`, (message) => {
-        try {
-          const parsedMessage = JSON.parse(message.body);
-          console.log('Raw WebSocket response:', parsedMessage);
-          if (parsedMessage._id) {
-            parsedMessage.id = parsedMessage._id;
-            delete parsedMessage._id;
-          }
-          onMessageCallback(parsedMessage);
-        } catch (error) {
-          console.error('Error parsing message:', error);
-        }
-      }, { Authorization: `Bearer ${token}` });
 
-      stompClient.subscribe(`/user/${userId}/queue/delete`, (message) => {
-        try {
-          const parsedMessage = JSON.parse(message.body);
-          console.log('Delete notification:', parsedMessage);
-          if (parsedMessage._id) {
-            parsedMessage.id = parsedMessage._id;
-            delete parsedMessage._id;
-          }
-          onDeleteCallback(parsedMessage);
-        } catch (error) {
-          console.error('Error parsing delete notification:', error);
-        }
-      }, { Authorization: `Bearer ${token}` });
+      try {
+        // Subscribe to personal messages
+        subscriptions.push(
+          stompClient.subscribe(`/user/${userId}/queue/messages`, (message) => {
+            try {
+              const parsedMessage = JSON.parse(message.body);
+              console.log('Personal message received:', parsedMessage);
+              if (parsedMessage._id) {
+                parsedMessage.id = parsedMessage._id;
+                delete parsedMessage._id;
+              }
+              onMessageCallback(parsedMessage);
+            } catch (error) {
+              console.error('Error parsing personal message:', error);
+            }
+          }, { Authorization: `Bearer ${token}` })
+        );
 
-      stompClient.subscribe(`/user/${userId}/queue/recall`, (message) => {
-        try {
-          const parsedMessage = JSON.parse(message.body);
-          console.log('Recall notification:', parsedMessage);
-          if (parsedMessage._id) {
-            parsedMessage.id = parsedMessage._id;
-            delete parsedMessage._id;
-          }
-          onRecallCallback(parsedMessage);
-        } catch (error) {
-          console.error('Error parsing recall notification:', error);
-        }
-      }, { Authorization: `Bearer ${token}` });
+        // Subscribe to group messages
+        if (Array.isArray(groupIds)) {
+          groupIds.forEach(groupId => {
+            if (groupId) {
+              console.log(`Subscribing to group ${groupId}`);
+              
+              // Main group messages
+              subscriptions.push(
+                stompClient.subscribe(`/topic/group/${groupId}`, (message) => {
+                  try {
+                    const parsedMessage = JSON.parse(message.body);
+                    console.log(`Group ${groupId} message received:`, parsedMessage);
+                    onMessageCallback({
+                      ...parsedMessage,
+                      id: parsedMessage._id || parsedMessage.id,
+                      _id: undefined,
+                      groupId: groupId // Ensure groupId is set
+                    });
+                  } catch (error) {
+                    console.error(`Error parsing group ${groupId} message:`, error);
+                  }
+                }, { Authorization: `Bearer ${token}` })
+              );
 
-      resolve();
+              // Group events
+              subscriptions.push(
+                stompClient.subscribe(`/topic/group/${groupId}/events`, (event) => {
+                  try {
+                    const parsedEvent = JSON.parse(event.body);
+                    console.log(`Group ${groupId} event received:`, parsedEvent);
+                    
+                    switch(parsedEvent.type) {
+                      case 'DELETE':
+                        onDeleteCallback && onDeleteCallback(parsedEvent);
+                        break;
+                      case 'RECALL':
+                        onRecallCallback && onRecallCallback(parsedEvent);
+                        break;
+                      case 'PIN':
+                        onPinCallback && onPinCallback(parsedEvent);
+                        break;
+                      case 'UNPIN':
+                        onUnpinCallback && onUnpinCallback(parsedEvent);
+                        break;
+                      default:
+                        console.log('Unknown group event type:', parsedEvent.type);
+                    }
+                  } catch (error) {
+                    console.error(`Error parsing group ${groupId} event:`, error);
+                  }
+                }, { Authorization: `Bearer ${token}` })
+              );
+            }
+          });
+        }
+
+        // Other subscriptions (delete, recall, etc.)
+        subscriptions.push(
+          stompClient.subscribe(`/user/${userId}/queue/delete`, (message) => {
+            try {
+              const parsedMessage = JSON.parse(message.body);
+              console.log('Delete notification:', parsedMessage);
+              onDeleteCallback(parsedMessage);
+            } catch (error) {
+              console.error('Error parsing delete notification:', error);
+            }
+          }, { Authorization: `Bearer ${token}` })
+        );
+
+        subscriptions.push(
+          stompClient.subscribe(`/user/${userId}/queue/recall`, (message) => {
+            try {
+              const parsedMessage = JSON.parse(message.body);
+              console.log('Recall notification:', parsedMessage);
+              onRecallCallback(parsedMessage);
+            } catch (error) {
+              console.error('Error parsing recall notification:', error);
+            }
+          }, { Authorization: `Bearer ${token}` })
+        );
+
+        resolve(stompClient);
+      } catch (error) {
+        console.error('Error setting up subscriptions:', error);
+        reject(error);
+      }
     };
 
     stompClient.onStompError = (frame) => {
@@ -197,16 +255,25 @@ export function connectWebSocket(token, userId, onMessageCallback, onDeleteCallb
     };
 
     stompClient.onWebSocketClose = (event) => {
-      console.log('SockJS disconnected:', event);
+      console.log('WebSocket closed:', event);
+      // Cleanup subscriptions
+      subscriptions.forEach(sub => {
+        try {
+          sub.unsubscribe();
+        } catch (error) {
+          console.warn('Error unsubscribing:', error);
+        }
+      });
+      subscriptions = [];
       stompClient = null;
     };
 
     stompClient.onWebSocketError = (error) => {
-      console.error('SockJS error:', error);
-      reject(new Error(`SockJS error: ${error.message || 'Connection failed'}`));
+      console.error('WebSocket error:', error);
+      reject(new Error(`WebSocket error: ${error.message || 'Connection failed'}`));
     };
 
-    console.log('Connecting STOMP with token:', token.substring(0, 20) + '...');
+    console.log('Connecting STOMP...');
     stompClient.activate();
   });
 }
