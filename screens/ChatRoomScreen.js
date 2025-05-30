@@ -147,11 +147,21 @@ const ChatRoomScreen = ({ route, navigation }) => {
 
       const setupWebSocketAndLoadHistory = async () => {
         try {
+          // Disconnect existing WebSocket if any
           if (webSocketClientRef.current) {
             console.log('WebSocket client already exists, disconnecting...');
             webSocketClientRef.current.deactivate();
+            webSocketClientRef.current = null;
           }
 
+          // Clear messages first
+          setMessages([]);
+          
+          // Load chat history first
+          await loadChatHistory();
+          await loadPinnedMessages();
+
+          // Then setup WebSocket after history is loaded
           const client = await connectWebSocket(
             token,
             webSocketUserId,
@@ -163,9 +173,29 @@ const ChatRoomScreen = ({ route, navigation }) => {
                 (!message.groupId && ((message.senderId === otherUserId && message.receiverId === webSocketUserId) ||
                   (message.senderId === webSocketUserId && message.receiverId === otherUserId)));
 
-              if (isCurrentChat && (message.type === 'TEXT' || message.type === 'IMAGE' || message.type === 'VIDEO' || message.type === 'FILE' || message.type === 'FORWARD')) {
+              if (isCurrentChat) {
                 setMessages((prev) => {
-                  if (message.senderId === webSocketUserId) return prev;
+                  // Kiểm tra tin nhắn trùng lặp một cách chặt chẽ hơn
+                  const messageExists = prev.some(msg => {
+                    // Kiểm tra ID trước
+                    if (msg.id === message.id || msg.id === message._id) return true;
+                    
+                    // Nếu không có ID, kiểm tra các thuộc tính khác
+                    const timeMatch = Math.abs(new Date(msg.createAt) - new Date(message.createAt || message.createdAt)) < 1000;
+                    const contentMatch = msg.content === message.content;
+                    const senderMatch = msg.senderId === message.senderId;
+                    const receiverMatch = (!msg.groupId && msg.receiverId === message.receiverId) || 
+                                        (msg.groupId && msg.groupId === message.groupId);
+                    
+                    return timeMatch && contentMatch && senderMatch && receiverMatch;
+                  });
+
+                  if (messageExists) {
+                    console.log('Tin nhắn đã tồn tại, bỏ qua');
+                    return prev;
+                  }
+
+                  console.log('Thêm tin nhắn mới:', message);
 
                   const updatedMessage = {
                     ...message,
@@ -174,13 +204,25 @@ const ChatRoomScreen = ({ route, navigation }) => {
                     createAt: message.createdAt || message.createAt || new Date().toISOString(),
                     read: message.read || false,
                   };
+
                   if (message.type === 'FORWARD' && message.forwardedFrom) {
                     updatedMessage.originalSenderId = message.forwardedFrom.originalSenderId || message.senderId;
-                    if (updatedMessage.senderId === webSocketUserId) return prev;
                   }
-                  const updatedMessages = [...prev, updatedMessage];
-                  return sortMessagesByTime(deduplicateMessages(updatedMessages));
+
+                  // Sắp xếp và loại bỏ trùng lặp một lần nữa để đảm bảo
+                  const newMessages = sortMessagesByTime(deduplicateMessages([...prev, updatedMessage]));
+                  console.log('Số lượng tin nhắn sau khi cập nhật:', newMessages.length);
+                  return newMessages;
                 });
+
+                // Tự động scroll xuống tin nhắn mới nếu người gửi là người dùng hiện tại
+                if (message.senderId === webSocketUserId) {
+                  setTimeout(() => {
+                    if (flatListRef.current) {
+                      flatListRef.current.scrollToEnd({ animated: true });
+                    }
+                  }, 100);
+                }
               } else if (message.type === 'PIN' && isCurrentChat) {
                 const msgToPin = messages.find((msg) => msg.id === message.id);
                 if (msgToPin && !pinnedMessages.some((msg) => msg.id === msgToPin.id)) {
@@ -230,16 +272,12 @@ const ChatRoomScreen = ({ route, navigation }) => {
             }
           );
           webSocketClientRef.current = client;
-
-          await new Promise(resolve => setTimeout(resolve, 500));
-          setMessages([]);
-          loadChatHistory();
-          loadPinnedMessages();
         } catch (error) {
           console.error('Kết nối WebSocket hoặc tải lịch sử thất bại:', error);
           Alert.alert('Lỗi', 'Không thể kết nối WebSocket hoặc tải lịch sử chat');
         }
       };
+
       setupWebSocketAndLoadHistory();
 
       return () => {
@@ -354,11 +392,10 @@ const ChatRoomScreen = ({ route, navigation }) => {
     setIsLoadingChat(true);
     try {
       const deletedMessageIds = JSON.parse(await AsyncStorage.getItem('deletedMessageIds') || '[]');
-
       const chatHistory = await getChatHistory(otherUserId, groupId, token);
+      
       if (!isMounted.current) return;
 
-      // Nếu không có quyền truy cập hoặc nhóm không tồn tại, chatHistory sẽ trả về lỗi
       if (!chatHistory) {
         Alert.alert('Thông báo', 'Không thể truy cập vào cuộc trò chuyện này');
         navigation.goBack();
@@ -368,7 +405,7 @@ const ChatRoomScreen = ({ route, navigation }) => {
       const updatedChatHistory = chatHistory.map((msg) => {
         const msgId = msg._id || msg.id || `${msg.senderId}-${msg.receiverId || msg.groupId}-${msg.content}-${msg.createdAt}`;
         const isDeleted = deletedMessageIds.includes(msgId) || deletedIds.includes(msgId);
-        const updatedMsg = {
+        return {
           ...msg,
           id: msgId,
           createAt: msg.createdAt || msg.createAt || new Date().toISOString(),
@@ -376,12 +413,11 @@ const ChatRoomScreen = ({ route, navigation }) => {
           read: msg.read || (msg.senderId !== webSocketUserId && !msg.recalled),
           type: msg.type || 'TEXT',
           content: isDeleted ? 'Tin nhắn đã bị xóa' : msg.content,
+          ...(msg.forwardedFrom && {
+            type: 'FORWARD',
+            originalSenderId: msg.forwardedFrom.originalSenderId || msg.senderId
+          })
         };
-        if (msg.forwardedFrom) {
-          updatedMsg.type = 'FORWARD';
-          updatedMsg.originalSenderId = msg.forwardedFrom.originalSenderId || msg.senderId;
-        }
-        return updatedMsg;
       });
 
       // Merge local messages
@@ -513,20 +549,16 @@ const ChatRoomScreen = ({ route, navigation }) => {
       read: false
     };
 
-    // 1. Hiển thị ngay lên UI
-    setMessages(prev => sortMessagesByTime([...prev, newMessage]));
-    setMessageInput('');
-
     try {
+      // Gửi tin nhắn qua WebSocket
       const result = await sendMessage('/app/chat.send', newMessage, token);
       if (!result) {
-        // Nếu gửi thất bại, xóa tin nhắn vừa thêm
-        setMessages(prev => prev.filter(msg => msg.id !== newMessage.id));
         throw new Error('Không thể gửi tin nhắn: WebSocket không hoạt động');
       }
-      // Nếu gửi thành công, không cần làm gì thêm
+      
+      // Không cần thêm tin nhắn vào state messages ở đây vì WebSocket sẽ nhận và thêm tin nhắn
+      setMessageInput('');
     } catch (error) {
-      setMessages(prev => prev.filter(msg => msg.id !== newMessage.id));
       Alert.alert('Lỗi', 'Không thể gửi tin nhắn: ' + error.message);
       navigation.goBack();
     } finally {
